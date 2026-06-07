@@ -207,6 +207,22 @@ app.post("/api/schedule", (req, res) => {
   res.json({ ok: true, nextTriggerAt: ms });
 });
 
+// Body: { cookies: "<json array string>" } or { cookies: [ ... ] }
+app.post("/api/cookies", (req, res) => {
+  try {
+    let { cookies } = req.body || {};
+    if (typeof cookies === "string") cookies = JSON.parse(cookies);
+    if (!Array.isArray(cookies)) throw new Error("Expected a JSON array of cookies.");
+    const hasSession = cookies.some((c) => c && c.name === "sessionKey" && c.value);
+    if (!hasSession) throw new Error("No 'sessionKey' cookie found in the imported JSON.");
+    fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookies, null, 2));
+    log(`Imported ${cookies.length} cookies via frontend.`);
+    res.json({ ok: true, count: cookies.length });
+  } catch (err) {
+    res.status(400).json({ error: `Invalid cookies JSON: ${err.message}` });
+  }
+});
+
 app.post("/api/stop", (req, res) => {
   config.running = false;
   saveConfig(config);

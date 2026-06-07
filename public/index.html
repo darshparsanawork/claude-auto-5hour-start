@@ -19,10 +19,11 @@
   h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
   p.sub { color: #999; margin: 0 0 1.25rem; font-size: .9rem; }
   label { display: block; font-size: .85rem; color: #bbb; margin: .9rem 0 .3rem; }
-  input[type="datetime-local"], input[type="text"] {
+  input[type="datetime-local"], input[type="text"], textarea {
     width: 100%; padding: .6rem .7rem; border-radius: 8px;
     border: 1px solid #444; background: #1c1c1c; color: #eee; font-size: 1rem;
   }
+  textarea { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; resize: vertical; }
   .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
   button {
     flex: 1; min-width: 130px; padding: .65rem 1rem; border-radius: 8px;
@@ -55,7 +56,16 @@
   <p class="sub">Picks the next start time in <b>IST</b>, then re-triggers every <b>5h 3m</b>. A trigger = new conversation + send your message.</p>
 
   <div id="cookieWarn" class="warn" style="display:none">
-    ⚠️ <code>cookies.json</code> not found or empty. Add it next to the server before scheduling.
+    ⚠️ No cookies loaded yet. Paste your exported claude.ai cookie JSON below and import it.
+  </div>
+  <div id="cookieOk" class="warn" style="display:none; color:#8ee08e">
+    ✅ Cookies loaded.
+  </div>
+
+  <label>Cookies JSON (paste exported claude.ai cookies)</label>
+  <textarea id="cookies" rows="4" placeholder='[ { "name": "sessionKey", "value": "sk-ant-sid02-..." }, ... ]'></textarea>
+  <div class="row">
+    <button class="ghost" onclick="importCookies()">Import cookies</button>
   </div>
 
   <label>Next trigger time (IST)</label>
@@ -84,6 +94,7 @@ async function refresh() {
   const r = await fetch("/api/status");
   const s = await r.json();
   document.getElementById("cookieWarn").style.display = s.cookiesOk ? "none" : "block";
+  document.getElementById("cookieOk").style.display = s.cookiesOk ? "block" : "none";
 
   let countdown = "—";
   if (s.running && s.nextTriggerAt) {
@@ -106,6 +117,20 @@ async function refresh() {
   document.getElementById("logs").innerHTML = (s.logs || [])
     .map(l => `<div>${new Date(l.time).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"})} — ${l.msg}</div>`)
     .join("");
+}
+
+async function importCookies() {
+  const cookies = document.getElementById("cookies").value.trim();
+  if (!cookies) return alert("Paste your cookie JSON first.");
+  const r = await fetch("/api/cookies", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cookies }),
+  });
+  const d = await r.json();
+  if (!r.ok) return alert(d.error || "Failed to import cookies.");
+  document.getElementById("cookies").value = "";
+  alert(`Imported ${d.count} cookies.`);
+  refresh();
 }
 
 async function schedule() {
