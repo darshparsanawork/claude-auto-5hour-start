@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Claude Auto 5h Session Starter</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: #1a1a1a; color: #eee; margin: 0; padding: 2rem;
+    display: flex; justify-content: center;
+  }
+  .card {
+    background: #242424; border: 1px solid #3a3a3a; border-radius: 12px;
+    padding: 1.5rem 1.75rem; width: 100%; max-width: 620px;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
+  p.sub { color: #999; margin: 0 0 1.25rem; font-size: .9rem; }
+  label { display: block; font-size: .85rem; color: #bbb; margin: .9rem 0 .3rem; }
+  input[type="datetime-local"], input[type="text"] {
+    width: 100%; padding: .6rem .7rem; border-radius: 8px;
+    border: 1px solid #444; background: #1c1c1c; color: #eee; font-size: 1rem;
+  }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
+  button {
+    flex: 1; min-width: 130px; padding: .65rem 1rem; border-radius: 8px;
+    border: none; font-size: .95rem; cursor: pointer; font-weight: 600;
+  }
+  .primary { background: #d97757; color: #1a1a1a; }
+  .ghost { background: #333; color: #eee; }
+  .danger { background: #5a2e2e; color: #f3c2c2; }
+  .status {
+    margin-top: 1.4rem; background: #1c1c1c; border: 1px solid #333;
+    border-radius: 8px; padding: 1rem; font-size: .9rem;
+  }
+  .status div { margin: .2rem 0; }
+  .pill { padding: .1rem .5rem; border-radius: 99px; font-size: .75rem; font-weight: 700; }
+  .on { background: #1f3d1f; color: #8ee08e; }
+  .off { background: #3d1f1f; color: #e08e8e; }
+  .warn { color: #e0b85e; }
+  .logs {
+    margin-top: 1rem; background: #141414; border: 1px solid #2a2a2a;
+    border-radius: 8px; padding: .75rem; height: 200px; overflow: auto;
+    font-family: ui-monospace, Menlo, monospace; font-size: .78rem; color: #bbb;
+  }
+  .logs div { padding: .1rem 0; border-bottom: 1px solid #222; }
+  code { color: #d97757; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Claude Auto 5h Session Starter</h1>
+  <p class="sub">Picks the next start time in <b>IST</b>, then re-triggers every <b>5h 3m</b>. A trigger = new conversation + send your message.</p>
+
+  <div id="cookieWarn" class="warn" style="display:none">
+    ⚠️ <code>cookies.json</code> not found or empty. Add it next to the server before scheduling.
+  </div>
+
+  <label>Next trigger time (IST)</label>
+  <input type="datetime-local" id="dt" />
+
+  <label>Message to send</label>
+  <input type="text" id="msg" value="hi" />
+
+  <div class="row">
+    <button class="primary" onclick="schedule()">Save &amp; Start</button>
+    <button class="ghost" onclick="triggerNow()">Trigger now (test)</button>
+    <button class="danger" onclick="stop()">Stop</button>
+  </div>
+
+  <div class="status" id="status">Loading…</div>
+  <div class="logs" id="logs"></div>
+</div>
+
+<script>
+function fmtIST(ms) {
+  if (!ms) return "—";
+  return new Date(ms).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST";
+}
+
+async function refresh() {
+  const r = await fetch("/api/status");
+  const s = await r.json();
+  document.getElementById("cookieWarn").style.display = s.cookiesOk ? "none" : "block";
+
+  let countdown = "—";
+  if (s.running && s.nextTriggerAt) {
+    const diff = s.nextTriggerAt - s.serverNow;
+    if (diff > 0) {
+      const h = Math.floor(diff / 3.6e6);
+      const m = Math.floor((diff % 3.6e6) / 6e4);
+      const sec = Math.floor((diff % 6e4) / 1000);
+      countdown = `${h}h ${m}m ${sec}s`;
+    } else countdown = "firing…";
+  }
+
+  document.getElementById("status").innerHTML = `
+    <div>State: <span class="pill ${s.running ? "on" : "off"}">${s.running ? "RUNNING" : "STOPPED"}</span></div>
+    <div>Next trigger: <b>${fmtIST(s.nextTriggerAt)}</b></div>
+    <div>Countdown: <b>${countdown}</b></div>
+    <div>Interval: every ${Math.round(s.intervalMs/60000)} min (5h 3m)</div>
+    <div>Message: <code>${s.message}</code></div>
+  `;
+  document.getElementById("logs").innerHTML = (s.logs || [])
+    .map(l => `<div>${new Date(l.time).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"})} — ${l.msg}</div>`)
+    .join("");
+}
+
+async function schedule() {
+  const dt = document.getElementById("dt").value;
+  const msg = document.getElementById("msg").value;
+  if (!dt) return alert("Pick a date & time first.");
+  const r = await fetch("/api/schedule", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ istDateTime: dt, message: msg }),
+  });
+  const d = await r.json();
+  if (!r.ok) alert(d.error || "Failed");
+  refresh();
+}
+
+async function triggerNow() {
+  if (!confirm("Send a test message to Claude right now?")) return;
+  const r = await fetch("/api/trigger-now", { method: "POST" });
+  const d = await r.json();
+  alert(r.ok ? "Sent! Conversation: " + d.convId : "Error: " + d.error);
+  refresh();
+}
+
+async function stop() {
+  await fetch("/api/stop", { method: "POST" });
+  refresh();
+}
+
+// Default the datetime input to "now + 5 min" in IST for convenience.
+(function setDefault() {
+  const now = new Date(Date.now() + 5 * 60000);
+  const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const pad = n => String(n).padStart(2, "0");
+  document.getElementById("dt").value =
+    `${ist.getFullYear()}-${pad(ist.getMonth()+1)}-${pad(ist.getDate())}T${pad(ist.getHours())}:${pad(ist.getMinutes())}`;
+})();
+
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

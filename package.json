@@ -1,0 +1,16 @@
+{
+  "name": "claude-auto-5hour-start",
+  "version": "1.0.0",
+  "description": "Auto-start a Claude conversation every 5h3m, scheduled in IST from a simple web UI.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

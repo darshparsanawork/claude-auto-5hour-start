@@ -1,0 +1,14 @@
+[
+  {
+    "domain": ".claude.ai",
+    "name": "sessionKey",
+    "path": "/",
+    "value": "sk-ant-sid02-REPLACE_ME"
+  },
+  {
+    "domain": ".claude.ai",
+    "name": "lastActiveOrg",
+    "path": "/",
+    "value": "your-org-uuid"
+  }
+]
