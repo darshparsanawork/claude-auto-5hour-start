@@ -41,8 +41,10 @@ This is handy for keeping a rolling 5-hour usage window "warm".
 - **Accounts:** add one or more accounts. For each, export your claude.ai
   cookies (e.g. "Cookie-Editor" extension → Export → JSON), optionally give it
   a name, paste the JSON, and click **Add account**. Each account needs at
-  least the `sessionKey` cookie (`lastActiveOrg` is recommended). Use **Test**
-  on a row to fire just that account, or **Remove** to delete it.
+  least the `sessionKey` cookie (`lastActiveOrg` is recommended). Each row shows
+  the account's **email** and an **ACTIVE/INACTIVE** badge (the app verifies the
+  session against claude.ai and re-checks roughly every minute). Use **Recheck**
+  to verify now, **Test** to fire just that account, or **Remove** to delete it.
 - **Next trigger time (IST):** when the first message fires.
 - **Message:** what gets sent (`hi` by default).
 - **Save & Start:** schedules and arms the loop.

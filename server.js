@@ -83,6 +83,59 @@ function cookieInfo(cookies) {
   return { header, orgId: orgCookie ? orgCookie.value : null };
 }
 
+// ---------------------------------------------------------------------------
+// Account verification — is the session live, and what's the email?
+// Results are cached so the frequent status poll doesn't hammer claude.ai.
+// ---------------------------------------------------------------------------
+const accountStatus = new Map(); // id -> { active, email, checkedAt, checking }
+const VERIFY_TTL_MS = 60 * 1000;
+
+const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]+/;
+function findEmail(obj, depth = 0) {
+  if (!obj || depth > 6) return null;
+  if (typeof obj === "string") return EMAIL_RE.test(obj) ? obj.match(EMAIL_RE)[0] : null;
+  if (typeof obj !== "object") return null;
+  for (const v of Object.values(obj)) {
+    const found = findEmail(v, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function verifyAccount(account) {
+  const { header } = cookieInfo(account.cookies);
+  const prev = accountStatus.get(account.id) || {};
+  accountStatus.set(account.id, { ...prev, checking: true });
+  let active = false;
+  let email = prev.email || null;
+  try {
+    // /organizations 200 => the sessionKey is still valid.
+    const res = await fetch(`${BASE}/api/organizations`, { headers: baseHeaders(header) });
+    if (res.ok) {
+      active = true;
+      const orgs = await res.json().catch(() => null);
+      email = findEmail(orgs) || email;
+      // Org list rarely carries the email; try the account profile too.
+      if (!email) {
+        for (const ep of ["/api/account", "/api/bootstrap"]) {
+          try {
+            const r = await fetch(`${BASE}${ep}`, { headers: baseHeaders(header) });
+            if (r.ok) {
+              email = findEmail(await r.json());
+              if (email) break;
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {
+    active = false;
+  }
+  const status = { active, email, checkedAt: Date.now(), checking: false };
+  accountStatus.set(account.id, status);
+  return status;
+}
+
 function baseHeaders(cookieHeader) {
   return {
     "User-Agent": UA,
@@ -217,12 +270,22 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/status", (req, res) => {
-  // Never expose cookie values — just names and counts.
-  const accountList = accounts.map((a) => ({
-    id: a.id,
-    name: a.name,
-    cookieCount: a.cookies.length,
-  }));
+  // Never expose cookie values — just names, counts, and live status.
+  const accountList = accounts.map((a) => {
+    const st = accountStatus.get(a.id) || {};
+    // Refresh stale/unknown entries in the background (don't block the poll).
+    if (!st.checking && (!st.checkedAt || Date.now() - st.checkedAt > VERIFY_TTL_MS)) {
+      verifyAccount(a).catch(() => {});
+    }
+    return {
+      id: a.id,
+      name: a.name,
+      cookieCount: a.cookies.length,
+      active: st.active ?? null,
+      email: st.email ?? null,
+      checkedAt: st.checkedAt ?? null,
+    };
+  });
   res.json({
     running: config.running,
     nextTriggerAt: config.nextTriggerAt,
@@ -250,7 +313,7 @@ app.post("/api/schedule", (req, res) => {
 });
 
 // Add an account. Body: { name?, cookies: "<json string>" | [ ... ] }
-app.post("/api/accounts", (req, res) => {
+app.post("/api/accounts", async (req, res) => {
   try {
     let { name, cookies } = req.body || {};
     if (typeof cookies === "string") cookies = JSON.parse(cookies);
@@ -261,11 +324,21 @@ app.post("/api/accounts", (req, res) => {
     const account = { id: crypto.randomUUID(), name, cookies };
     accounts.push(account);
     saveAccounts(accounts);
-    log(`Added account "${name}" (${cookies.length} cookies).`);
-    res.json({ ok: true, id: account.id, name, count: cookies.length });
+    log(`Added account "${name}" (${cookies.length} cookies). Verifying...`);
+    const st = await verifyAccount(account);
+    log(`[${name}] ${st.active ? "active" : "inactive"}${st.email ? " — " + st.email : ""}`);
+    res.json({ ok: true, id: account.id, name, count: cookies.length, ...st });
   } catch (err) {
     res.status(400).json({ error: `Invalid cookies JSON: ${err.message}` });
   }
+});
+
+// Re-check an account's live status now.
+app.post("/api/accounts/:id/verify", async (req, res) => {
+  const account = accounts.find((a) => a.id === req.params.id);
+  if (!account) return res.status(404).json({ error: "Not found" });
+  const st = await verifyAccount(account);
+  res.json({ ok: true, ...st });
 });
 
 // Remove an account.
@@ -274,6 +347,7 @@ app.delete("/api/accounts/:id", (req, res) => {
   const removed = accounts.find((a) => a.id === req.params.id);
   accounts = accounts.filter((a) => a.id !== req.params.id);
   if (accounts.length === before) return res.status(404).json({ error: "Not found" });
+  accountStatus.delete(req.params.id);
   saveAccounts(accounts);
   log(`Removed account "${removed ? removed.name : req.params.id}".`);
   res.json({ ok: true });

@@ -49,6 +49,7 @@
   .pill { padding: .1rem .5rem; border-radius: 99px; font-size: .75rem; font-weight: 700; }
   .on { background: #1f3d1f; color: #8ee08e; }
   .off { background: #3d1f1f; color: #e08e8e; }
+  .checking { background: #333; color: #bbb; }
   .warn { color: #e0b85e; }
   .logs {
     margin-top: 1rem; background: #141414; border: 1px solid #2a2a2a;
@@ -107,14 +108,26 @@ async function refresh() {
   const accts = s.accounts || [];
   document.getElementById("cookieWarn").style.display = accts.length ? "none" : "block";
   document.getElementById("accounts").innerHTML = accts.length
-    ? accts.map(a => `
+    ? accts.map(a => {
+        const badge = a.active === null
+          ? '<span class="pill checking">checking…</span>'
+          : a.active
+            ? '<span class="pill on">ACTIVE</span>'
+            : '<span class="pill off">INACTIVE</span>';
+        const email = a.email ? escapeHtml(a.email) : (a.active === false ? "session expired?" : "—");
+        return `
         <div class="acct">
-          <div class="meta">${escapeHtml(a.name)} <small>(${a.cookieCount} cookies)</small></div>
+          <div class="meta">
+            <div>${escapeHtml(a.name)} ${badge}</div>
+            <small>${email} · ${a.cookieCount} cookies</small>
+          </div>
           <div class="acts">
+            <button class="ghost" onclick="verifyAccount('${a.id}')">Recheck</button>
             <button class="ghost" onclick="triggerNow('${a.id}')">Test</button>
             <button class="danger" onclick="removeAccount('${a.id}')">Remove</button>
           </div>
-        </div>`).join("")
+        </div>`;
+      }).join("")
     : '<div class="empty">No accounts yet.</div>';
 
   let countdown = "—";
@@ -158,6 +171,11 @@ async function addAccount() {
   document.getElementById("cookies").value = "";
   document.getElementById("accName").value = "";
   alert(`Added "${d.name}" (${d.count} cookies).`);
+  refresh();
+}
+
+async function verifyAccount(id) {
+  await fetch("/api/accounts/" + id + "/verify", { method: "POST" });
   refresh();
 }
 
