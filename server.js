@@ -7,7 +7,8 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 
-const COOKIES_PATH = path.join(__dirname, "cookies.json");
+const COOKIES_PATH = path.join(__dirname, "cookies.json"); // legacy single-account
+const ACCOUNTS_PATH = path.join(__dirname, "accounts.json");
 const CONFIG_PATH = path.join(__dirname, "config.json");
 
 // 5 hours + 3 minutes, in milliseconds.
@@ -45,21 +46,40 @@ function log(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// Cookie handling
+// Accounts — each is { id, name, cookies: [ {name, value}, ... ] }
 // ---------------------------------------------------------------------------
-function readCookies() {
-  if (!fs.existsSync(COOKIES_PATH)) {
-    throw new Error(
-      "cookies.json not found. Copy cookies.example.json to cookies.json and paste your exported claude.ai cookies."
-    );
+function loadAccounts() {
+  try {
+    const arr = JSON.parse(fs.readFileSync(ACCOUNTS_PATH, "utf8"));
+    if (Array.isArray(arr)) return arr;
+  } catch {}
+  // One-time migration from the old single-account cookies.json.
+  if (fs.existsSync(COOKIES_PATH)) {
+    try {
+      const cookies = JSON.parse(fs.readFileSync(COOKIES_PATH, "utf8"));
+      if (Array.isArray(cookies) && cookies.length) {
+        const migrated = [{ id: crypto.randomUUID(), name: "Account 1", cookies }];
+        saveAccounts(migrated);
+        return migrated;
+      }
+    } catch {}
   }
-  const arr = JSON.parse(fs.readFileSync(COOKIES_PATH, "utf8"));
-  if (!Array.isArray(arr)) throw new Error("cookies.json must be a JSON array.");
-  const header = arr
+  return [];
+}
+
+function saveAccounts(list) {
+  fs.writeFileSync(ACCOUNTS_PATH, JSON.stringify(list, null, 2));
+}
+
+let accounts = loadAccounts();
+
+// Turn a cookie array into a request Cookie header + the org id (if present).
+function cookieInfo(cookies) {
+  const header = cookies
     .filter((c) => c && c.name && c.value)
     .map((c) => `${c.name}=${c.value}`)
     .join("; ");
-  const orgCookie = arr.find((c) => c.name === "lastActiveOrg");
+  const orgCookie = cookies.find((c) => c.name === "lastActiveOrg");
   return { header, orgId: orgCookie ? orgCookie.value : null };
 }
 
@@ -132,15 +152,35 @@ async function sendMessage(cookieHeader, orgId, convId, message) {
   await res.text();
 }
 
-async function triggerOnce() {
-  const { header, orgId: orgFromCookie } = readCookies();
+async function triggerOnce(account) {
+  const { header, orgId: orgFromCookie } = cookieInfo(account.cookies);
+  if (!header) throw new Error("account has no usable cookies");
   const orgId = await getOrgId(header, orgFromCookie);
-  log(`Using organization ${orgId}`);
   const convId = await createConversation(header, orgId);
-  log(`Created conversation ${convId}`);
   await sendMessage(header, orgId, convId, config.message || "hi");
-  log(`Sent message. Conversation: ${BASE}/chat/${convId}`);
+  log(`[${account.name}] Sent message. Conversation: ${BASE}/chat/${convId}`);
   return convId;
+}
+
+// Fire for every configured account; failures in one don't stop the others.
+async function triggerAll() {
+  if (!accounts.length) {
+    log("No accounts configured — nothing to trigger.");
+    return { sent: 0, failed: 0 };
+  }
+  let sent = 0;
+  let failed = 0;
+  for (const account of accounts) {
+    try {
+      await triggerOnce(account);
+      sent++;
+    } catch (err) {
+      failed++;
+      log(`[${account.name}] ERROR: ${err.message}`);
+    }
+  }
+  log(`Trigger complete: ${sent} sent, ${failed} failed.`);
+  return { sent, failed };
 }
 
 // ---------------------------------------------------------------------------
@@ -153,8 +193,8 @@ async function tick() {
   if (firing) return;
   firing = true;
   try {
-    log("Trigger time reached — starting a new Claude conversation...");
-    await triggerOnce();
+    log(`Trigger time reached — starting new conversations for ${accounts.length} account(s)...`);
+    await triggerAll();
   } catch (err) {
     log(`ERROR: ${err.message}`);
   } finally {
@@ -177,16 +217,18 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/status", (req, res) => {
-  let cookiesOk = false;
-  try {
-    cookiesOk = !!readCookies().header;
-  } catch {}
+  // Never expose cookie values — just names and counts.
+  const accountList = accounts.map((a) => ({
+    id: a.id,
+    name: a.name,
+    cookieCount: a.cookies.length,
+  }));
   res.json({
     running: config.running,
     nextTriggerAt: config.nextTriggerAt,
     message: config.message || "hi",
     intervalMs: INTERVAL_MS,
-    cookiesOk,
+    accounts: accountList,
     serverNow: Date.now(),
     logs,
   });
@@ -207,20 +249,34 @@ app.post("/api/schedule", (req, res) => {
   res.json({ ok: true, nextTriggerAt: ms });
 });
 
-// Body: { cookies: "<json array string>" } or { cookies: [ ... ] }
-app.post("/api/cookies", (req, res) => {
+// Add an account. Body: { name?, cookies: "<json string>" | [ ... ] }
+app.post("/api/accounts", (req, res) => {
   try {
-    let { cookies } = req.body || {};
+    let { name, cookies } = req.body || {};
     if (typeof cookies === "string") cookies = JSON.parse(cookies);
     if (!Array.isArray(cookies)) throw new Error("Expected a JSON array of cookies.");
     const hasSession = cookies.some((c) => c && c.name === "sessionKey" && c.value);
     if (!hasSession) throw new Error("No 'sessionKey' cookie found in the imported JSON.");
-    fs.writeFileSync(COOKIES_PATH, JSON.stringify(cookies, null, 2));
-    log(`Imported ${cookies.length} cookies via frontend.`);
-    res.json({ ok: true, count: cookies.length });
+    name = (typeof name === "string" && name.trim()) || `Account ${accounts.length + 1}`;
+    const account = { id: crypto.randomUUID(), name, cookies };
+    accounts.push(account);
+    saveAccounts(accounts);
+    log(`Added account "${name}" (${cookies.length} cookies).`);
+    res.json({ ok: true, id: account.id, name, count: cookies.length });
   } catch (err) {
     res.status(400).json({ error: `Invalid cookies JSON: ${err.message}` });
   }
+});
+
+// Remove an account.
+app.delete("/api/accounts/:id", (req, res) => {
+  const before = accounts.length;
+  const removed = accounts.find((a) => a.id === req.params.id);
+  accounts = accounts.filter((a) => a.id !== req.params.id);
+  if (accounts.length === before) return res.status(404).json({ error: "Not found" });
+  saveAccounts(accounts);
+  log(`Removed account "${removed ? removed.name : req.params.id}".`);
+  res.json({ ok: true });
 });
 
 app.post("/api/stop", (req, res) => {
@@ -230,10 +286,18 @@ app.post("/api/stop", (req, res) => {
   res.json({ ok: true });
 });
 
+// Fire immediately. Body (optional): { id } to trigger one account only.
 app.post("/api/trigger-now", async (req, res) => {
   try {
-    const convId = await triggerOnce();
-    res.json({ ok: true, convId });
+    const { id } = req.body || {};
+    if (id) {
+      const account = accounts.find((a) => a.id === id);
+      if (!account) return res.status(404).json({ error: "Account not found" });
+      const convId = await triggerOnce(account);
+      return res.json({ ok: true, convId });
+    }
+    const result = await triggerAll();
+    res.json({ ok: true, ...result });
   } catch (err) {
     log(`ERROR (manual trigger): ${err.message}`);
     res.status(500).json({ error: err.message });

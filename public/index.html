@@ -24,6 +24,15 @@
     border: 1px solid #444; background: #1c1c1c; color: #eee; font-size: 1rem;
   }
   textarea { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; resize: vertical; }
+  .accounts { display: flex; flex-direction: column; gap: .4rem; }
+  .acct {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #1c1c1c; border: 1px solid #333; border-radius: 8px; padding: .5rem .7rem;
+  }
+  .acct .meta { font-size: .9rem; }
+  .acct .meta small { color: #888; }
+  .acct .acts button { padding: .35rem .6rem; min-width: auto; flex: none; margin-left: .4rem; font-size: .8rem; }
+  .empty { color: #777; font-size: .85rem; padding: .3rem 0; }
   .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
   button {
     flex: 1; min-width: 130px; padding: .65rem 1rem; border-radius: 8px;
@@ -56,16 +65,18 @@
   <p class="sub">Picks the next start time in <b>IST</b>, then re-triggers every <b>5h 3m</b>. A trigger = new conversation + send your message.</p>
 
   <div id="cookieWarn" class="warn" style="display:none">
-    ⚠️ No cookies loaded yet. Paste your exported claude.ai cookie JSON below and import it.
-  </div>
-  <div id="cookieOk" class="warn" style="display:none; color:#8ee08e">
-    ✅ Cookies loaded.
+    ⚠️ No accounts added yet. Paste an exported claude.ai cookie JSON below and add it.
   </div>
 
+  <label>Accounts</label>
+  <div id="accounts" class="accounts"></div>
+
+  <label>Add account — name (optional)</label>
+  <input type="text" id="accName" placeholder="e.g. Personal, Work…" />
   <label>Cookies JSON (paste exported claude.ai cookies)</label>
   <textarea id="cookies" rows="4" placeholder='[ { "name": "sessionKey", "value": "sk-ant-sid02-..." }, ... ]'></textarea>
   <div class="row">
-    <button class="ghost" onclick="importCookies()">Import cookies</button>
+    <button class="ghost" onclick="addAccount()">Add account</button>
   </div>
 
   <label>Next trigger time (IST)</label>
@@ -93,8 +104,18 @@ function fmtIST(ms) {
 async function refresh() {
   const r = await fetch("/api/status");
   const s = await r.json();
-  document.getElementById("cookieWarn").style.display = s.cookiesOk ? "none" : "block";
-  document.getElementById("cookieOk").style.display = s.cookiesOk ? "block" : "none";
+  const accts = s.accounts || [];
+  document.getElementById("cookieWarn").style.display = accts.length ? "none" : "block";
+  document.getElementById("accounts").innerHTML = accts.length
+    ? accts.map(a => `
+        <div class="acct">
+          <div class="meta">${escapeHtml(a.name)} <small>(${a.cookieCount} cookies)</small></div>
+          <div class="acts">
+            <button class="ghost" onclick="triggerNow('${a.id}')">Test</button>
+            <button class="danger" onclick="removeAccount('${a.id}')">Remove</button>
+          </div>
+        </div>`).join("")
+    : '<div class="empty">No accounts yet.</div>';
 
   let countdown = "—";
   if (s.running && s.nextTriggerAt) {
@@ -119,17 +140,30 @@ async function refresh() {
     .join("");
 }
 
-async function importCookies() {
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function addAccount() {
   const cookies = document.getElementById("cookies").value.trim();
+  const name = document.getElementById("accName").value.trim();
   if (!cookies) return alert("Paste your cookie JSON first.");
-  const r = await fetch("/api/cookies", {
+  const r = await fetch("/api/accounts", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cookies }),
+    body: JSON.stringify({ name, cookies }),
   });
   const d = await r.json();
-  if (!r.ok) return alert(d.error || "Failed to import cookies.");
+  if (!r.ok) return alert(d.error || "Failed to add account.");
   document.getElementById("cookies").value = "";
-  alert(`Imported ${d.count} cookies.`);
+  document.getElementById("accName").value = "";
+  alert(`Added "${d.name}" (${d.count} cookies).`);
+  refresh();
+}
+
+async function removeAccount(id) {
+  if (!confirm("Remove this account?")) return;
+  await fetch("/api/accounts/" + id, { method: "DELETE" });
   refresh();
 }
 
@@ -146,11 +180,17 @@ async function schedule() {
   refresh();
 }
 
-async function triggerNow() {
-  if (!confirm("Send a test message to Claude right now?")) return;
-  const r = await fetch("/api/trigger-now", { method: "POST" });
+async function triggerNow(id) {
+  const one = typeof id === "string";
+  if (!confirm(one ? "Send a test message from this account now?" : "Send a test message from ALL accounts now?")) return;
+  const r = await fetch("/api/trigger-now", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(one ? { id } : {}),
+  });
   const d = await r.json();
-  alert(r.ok ? "Sent! Conversation: " + d.convId : "Error: " + d.error);
+  if (!r.ok) alert("Error: " + d.error);
+  else if (one) alert("Sent! Conversation: " + d.convId);
+  else alert(`Done: ${d.sent} sent, ${d.failed} failed.`);
   refresh();
 }
 

@@ -21,14 +21,12 @@ This is handy for keeping a rolling 5-hour usage window "warm".
    npm install
    ```
 
-2. Export your claude.ai cookies (e.g. with the "Cookie-Editor" browser
-   extension → Export → JSON) while logged in to https://claude.ai, and save
-   them as `cookies.json` in this folder. The full array works as-is; only
-   `sessionKey` and `lastActiveOrg` are strictly required.
+2. Run the app and add accounts from the UI (see below). Cookies are stored
+   server-side in `accounts.json`, which is gitignored.
 
-   > ⚠️ **`cookies.json` is gitignored — never commit it.** It contains your
-   > live session token. If it leaks, log out of claude.ai everywhere to
-   > rotate it.
+   > ⚠️ **`accounts.json` / `cookies.json` are gitignored — never commit them.**
+   > They contain live session tokens. If one leaks, log out of claude.ai
+   > everywhere to rotate it.
 
 3. Run:
 
@@ -40,11 +38,19 @@ This is handy for keeping a rolling 5-hour usage window "warm".
 
 ## Using the UI
 
+- **Accounts:** add one or more accounts. For each, export your claude.ai
+  cookies (e.g. "Cookie-Editor" extension → Export → JSON), optionally give it
+  a name, paste the JSON, and click **Add account**. Each account needs at
+  least the `sessionKey` cookie (`lastActiveOrg` is recommended). Use **Test**
+  on a row to fire just that account, or **Remove** to delete it.
 - **Next trigger time (IST):** when the first message fires.
 - **Message:** what gets sent (`hi` by default).
 - **Save & Start:** schedules and arms the loop.
-- **Trigger now (test):** fires immediately so you can confirm cookies work.
+- **Trigger now (test):** fires immediately for **all** accounts.
 - **Stop:** pauses the loop.
+
+Every trigger creates a new conversation and sends the message for **each**
+account. A failure on one account is logged and does not block the others.
 
 After the first fire, the next is auto-scheduled at +5h3m, repeating forever.
 Schedule state persists in `config.json`, so a restart resumes the loop (and
