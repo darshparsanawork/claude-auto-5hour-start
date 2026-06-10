@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Claude Auto 5h Session Starter</title>
+<title>Claude Auto Reset Sender</title>
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
@@ -14,90 +14,82 @@
   }
   .card {
     background: #242424; border: 1px solid #3a3a3a; border-radius: 12px;
-    padding: 1.5rem 1.75rem; width: 100%; max-width: 620px;
+    padding: 1.5rem 1.75rem; width: 100%; max-width: 640px;
   }
   h1 { font-size: 1.3rem; margin: 0 0 .25rem; }
   p.sub { color: #999; margin: 0 0 1.25rem; font-size: .9rem; }
   label { display: block; font-size: .85rem; color: #bbb; margin: .9rem 0 .3rem; }
-  input[type="datetime-local"], input[type="text"], textarea {
+  input[type="text"], textarea {
     width: 100%; padding: .6rem .7rem; border-radius: 8px;
     border: 1px solid #444; background: #1c1c1c; color: #eee; font-size: 1rem;
   }
   textarea { font-family: ui-monospace, Menlo, monospace; font-size: .8rem; resize: vertical; }
-  .accounts { display: flex; flex-direction: column; gap: .4rem; }
-  .acct {
-    display: flex; align-items: center; justify-content: space-between;
-    background: #1c1c1c; border: 1px solid #333; border-radius: 8px; padding: .5rem .7rem;
-  }
-  .acct { align-items: flex-start; }
-  .acct .meta { font-size: .9rem; }
-  .acct .meta small { color: #888; display: block; font-size: .75rem; }
-  .acct .acts button { padding: .35rem .6rem; min-width: auto; flex: none; margin-left: .4rem; font-size: .8rem; }
-  .empty { color: #777; font-size: .85rem; padding: .3rem 0; }
-  button.link {
-    background: none; border: none; color: #d97757; cursor: pointer;
-    font-size: .78rem; padding: 0 0 0 .4rem; flex: none; min-width: auto; font-weight: 600;
-  }
-  .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; align-items: center; }
   button {
-    flex: 1; min-width: 130px; padding: .65rem 1rem; border-radius: 8px;
-    border: none; font-size: .95rem; cursor: pointer; font-weight: 600;
+    padding: .55rem 1rem; border-radius: 8px; border: none;
+    font-size: .9rem; cursor: pointer; font-weight: 600;
   }
   .primary { background: #d97757; color: #1a1a1a; }
   .ghost { background: #333; color: #eee; }
   .danger { background: #5a2e2e; color: #f3c2c2; }
-  .status {
-    margin-top: 1.4rem; background: #1c1c1c; border: 1px solid #333;
-    border-radius: 8px; padding: 1rem; font-size: .9rem;
+  button.link {
+    background: none; border: none; color: #d97757; cursor: pointer;
+    font-size: .78rem; padding: 0 0 0 .4rem; font-weight: 600;
   }
-  .status div { margin: .2rem 0; }
-  .pill { padding: .1rem .5rem; border-radius: 99px; font-size: .75rem; font-weight: 700; }
+  .toggle { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+  .accounts { display: flex; flex-direction: column; gap: .4rem; }
+  .acct {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    background: #1c1c1c; border: 1px solid #333; border-radius: 8px; padding: .55rem .7rem;
+  }
+  .acct .meta { font-size: .9rem; }
+  .acct .meta small { color: #888; display: block; font-size: .75rem; }
+  .acct .acts { display: flex; flex-wrap: wrap; gap: .3rem; justify-content: flex-end; max-width: 230px; }
+  .acct .acts button { padding: .3rem .55rem; font-size: .78rem; }
+  .pill { padding: .1rem .5rem; border-radius: 99px; font-size: .72rem; font-weight: 700; }
   .on { background: #1f3d1f; color: #8ee08e; }
   .off { background: #3d1f1f; color: #e08e8e; }
   .checking { background: #333; color: #bbb; }
-  .warn { color: #e0b85e; }
-  .logs {
-    margin-top: 1rem; background: #141414; border: 1px solid #2a2a2a;
-    border-radius: 8px; padding: .75rem; height: 200px; overflow: auto;
-    font-family: ui-monospace, Menlo, monospace; font-size: .78rem; color: #bbb;
-  }
+  .empty { color: #777; font-size: .85rem; padding: .3rem 0; }
+  .section { border-top: 1px solid #333; margin-top: 1.4rem; padding-top: .4rem; }
+  .status { margin-top: 1rem; background: #1c1c1c; border: 1px solid #333; border-radius: 8px; padding: 1rem; font-size: .9rem; }
+  .status div { margin: .2rem 0; }
+  .logs { margin-top: 1rem; background: #141414; border: 1px solid #2a2a2a; border-radius: 8px; padding: .75rem; height: 200px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: .78rem; color: #bbb; }
   .logs div { padding: .1rem 0; border-bottom: 1px solid #222; }
   code { color: #d97757; }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>Claude Auto 5h Session Starter</h1>
-  <p class="sub">Picks the next start time in <b>IST</b>, then re-triggers every <b>5h 3m</b>. A trigger = new conversation + send your message.</p>
+  <h1>Claude Auto Reset Sender</h1>
+  <p class="sub">Connect accounts. Each one's usage <b>reset time</b> is detected automatically, and a message is sent <b>5 minutes after every reset</b> — no start time to set.</p>
 
-  <div id="cookieWarn" class="warn" style="display:none">
-    ⚠️ No accounts added yet. Paste an exported claude.ai cookie JSON below and add it.
+  <!-- Settings -->
+  <div class="section">
+    <label>Message to send</label>
+    <input type="text" id="msg" value="hi" />
+    <label>Model (Sonic)</label>
+    <input type="text" id="model" value="claude-sonnet-4-5" />
+    <div class="row">
+      <label class="toggle" style="margin:0"><input type="checkbox" id="enabled" checked /> Automation enabled</label>
+      <button class="primary" onclick="saveSettings()">Save settings</button>
+    </div>
   </div>
 
-  <label>Accounts <button class="link" onclick="refreshAllUsage()">↻ Refresh all usage</button></label>
-  <div id="accounts" class="accounts"></div>
-
-  <label>Add account — name (optional)</label>
-  <input type="text" id="accName" placeholder="e.g. Personal, Work…" />
-  <label>Cookies JSON (paste exported claude.ai cookies)</label>
-  <textarea id="cookies" rows="4" placeholder='[ { "name": "sessionKey", "value": "sk-ant-sid02-..." }, ... ]'></textarea>
-  <div class="row">
-    <button class="ghost" onclick="addAccount()">Add account</button>
+  <!-- Add account -->
+  <div class="section">
+    <div id="cookieWarn" style="display:none; color:#e0b85e">⚠️ No accounts yet. Paste an exported claude.ai cookie JSON below.</div>
+    <label>Add account — name (optional)</label>
+    <input type="text" id="accName" placeholder="e.g. Personal, Work…" />
+    <label>Cookies JSON (paste exported claude.ai cookies)</label>
+    <textarea id="cookies" rows="4" placeholder='[ { "name": "sessionKey", "value": "sk-ant-sid02-..." }, ... ]'></textarea>
+    <div class="row"><button class="ghost" onclick="addAccount()">Add account</button></div>
   </div>
 
-  <label>Next trigger time (IST)</label>
-  <input type="datetime-local" id="dt" />
-
-  <label>Message to send</label>
-  <input type="text" id="msg" value="hi" />
-
-  <label>Model (Sonic)</label>
-  <input type="text" id="model" value="claude-sonnet-4-5" />
-
-  <div class="row">
-    <button class="primary" onclick="schedule()">Save &amp; Start</button>
-    <button class="ghost" onclick="triggerNow()">Trigger now (test)</button>
-    <button class="danger" onclick="stop()">Stop</button>
+  <!-- Accounts -->
+  <div class="section">
+    <label>Accounts <button class="link" onclick="refreshAllUsage()">↻ Refresh all usage</button></label>
+    <div id="accounts" class="accounts"></div>
   </div>
 
   <div class="status" id="status">Loading…</div>
@@ -109,160 +101,107 @@ function fmtIST(ms) {
   if (!ms) return "—";
   return new Date(ms).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST";
 }
-
-async function refresh() {
-  const r = await fetch("/api/status");
-  const s = await r.json();
-  const accts = s.accounts || [];
-  document.getElementById("cookieWarn").style.display = accts.length ? "none" : "block";
-  document.getElementById("accounts").innerHTML = accts.length
-    ? accts.map(a => {
-        const badge = a.active === null
-          ? '<span class="pill checking">checking…</span>'
-          : a.active
-            ? '<span class="pill on">ACTIVE</span>'
-            : '<span class="pill off">INACTIVE</span>';
-        const email = a.email ? escapeHtml(a.email) : (a.active === false ? "session expired?" : "—");
-        let usageLine = "";
-        if (a.usage && (a.usage.remaining != null || a.usage.resetsAt)) {
-          const left = (a.usage.remaining != null && a.usage.limit != null)
-            ? `${a.usage.remaining}/${a.usage.limit} left · ` : "";
-          if (left) usageLine += `<small>${left.replace(/ · $/, "")}</small>`;
-          if (a.usage.resetsAt) usageLine += `<small>Next reset: <b>${fmtIST(a.usage.resetsAt)}</b></small>`;
-          if (a.autoNextAt) usageLine += `<small>Auto-fire: ${fmtIST(a.autoNextAt)}</small>`;
-        } else {
-          usageLine = `<small>Usage: unknown — click Refresh usage</small>`;
-        }
-        return `
-        <div class="acct">
-          <div class="meta">
-            <div>${escapeHtml(a.name)} ${badge}</div>
-            <small>${email} · ${a.cookieCount} cookies</small>
-            ${usageLine}
-          </div>
-          <div class="acts">
-            <button class="ghost" onclick="refreshUsage('${a.id}')">Refresh usage</button>
-            <button class="ghost" onclick="verifyAccount('${a.id}')">Recheck</button>
-            <button class="ghost" onclick="triggerNow('${a.id}')">Test</button>
-            <button class="danger" onclick="removeAccount('${a.id}')">Remove</button>
-          </div>
-        </div>`;
-      }).join("")
-    : '<div class="empty">No accounts yet.</div>';
-
-  let countdown = "—";
-  if (s.running && s.nextTriggerAt) {
-    const diff = s.nextTriggerAt - s.serverNow;
-    if (diff > 0) {
-      const h = Math.floor(diff / 3.6e6);
-      const m = Math.floor((diff % 3.6e6) / 6e4);
-      const sec = Math.floor((diff % 6e4) / 1000);
-      countdown = `${h}h ${m}m ${sec}s`;
-    } else countdown = "firing…";
-  }
-
-  document.getElementById("status").innerHTML = `
-    <div>State: <span class="pill ${s.running ? "on" : "off"}">${s.running ? "RUNNING" : "STOPPED"}</span></div>
-    <div>Next trigger: <b>${fmtIST(s.nextTriggerAt)}</b></div>
-    <div>Countdown: <b>${countdown}</b></div>
-    <div>Interval: every ${Math.round(s.intervalMs/60000)} min (5h 3m) + per-account auto-fire 5m after reset</div>
-    <div>Message: <code>${s.message}</code> · Model: <code>${escapeHtml(s.model || "")}</code></div>
-  `;
-  document.getElementById("logs").innerHTML = (s.logs || [])
-    .map(l => `<div>${new Date(l.time).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"})} — ${l.msg}</div>`)
-    .join("");
-}
-
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+let settingsDirty = false;
+["msg", "model", "enabled"].forEach(id =>
+  document.getElementById(id).addEventListener("input", () => settingsDirty = true));
+
+async function refresh() {
+  const s = await (await fetch("/api/status")).json();
+  if (!settingsDirty) {
+    document.getElementById("msg").value = s.message;
+    document.getElementById("model").value = s.model;
+    document.getElementById("enabled").checked = s.enabled;
+  }
+
+  const accts = s.accounts || [];
+  document.getElementById("cookieWarn").style.display = accts.length ? "none" : "block";
+  document.getElementById("accounts").innerHTML = accts.length ? accts.map(a => {
+    const badge = a.active === null
+      ? '<span class="pill checking">checking…</span>'
+      : a.active ? '<span class="pill on">ACTIVE</span>' : '<span class="pill off">INACTIVE</span>';
+    const email = a.email ? escapeHtml(a.email) : (a.active === false ? "session expired?" : "—");
+    let usageLine = "";
+    if (a.usage && (a.usage.remaining != null || a.nextResetAt)) {
+      if (a.usage.remaining != null && a.usage.limit != null)
+        usageLine += `<small>${a.usage.remaining}/${a.usage.limit} left</small>`;
+      if (a.nextResetAt) usageLine += `<small>Next reset: <b>${fmtIST(a.nextResetAt)}</b></small>`;
+      if (a.autoNextAt) usageLine += `<small>Auto-send: ${fmtIST(a.autoNextAt)}</small>`;
+    } else {
+      usageLine = `<small>Reset time: detecting… (or click Refresh usage / Send now)</small>`;
+    }
+    return `
+      <div class="acct">
+        <div class="meta">
+          <div>${escapeHtml(a.name)} ${badge}</div>
+          <small>${email} · ${a.cookieCount} cookies</small>
+          ${usageLine}
+        </div>
+        <div class="acts">
+          <button class="ghost" onclick="sendNow('${a.id}')">Send now</button>
+          <button class="ghost" onclick="refreshUsage('${a.id}')">Refresh usage</button>
+          <button class="ghost" onclick="verifyAccount('${a.id}')">Recheck</button>
+          <button class="danger" onclick="removeAccount('${a.id}')">Remove</button>
+        </div>
+      </div>`;
+  }).join("") : '<div class="empty">No accounts yet.</div>';
+
+  document.getElementById("status").innerHTML = `
+    <div>Automation: <span class="pill ${s.enabled ? "on" : "off"}">${s.enabled ? "ENABLED" : "DISABLED"}</span></div>
+    <div>Sends 5 min after each account's usage reset.</div>
+    <div>Message: <code>${escapeHtml(s.message)}</code> · Model: <code>${escapeHtml(s.model)}</code></div>
+    <div>Storage: <code>${escapeHtml(s.storage)}</code></div>
+  `;
+  document.getElementById("logs").innerHTML = (s.logs || [])
+    .map(l => `<div>${new Date(l.time).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"})} — ${escapeHtml(l.msg)}</div>`).join("");
+}
+
+async function saveSettings() {
+  const body = {
+    message: document.getElementById("msg").value,
+    model: document.getElementById("model").value,
+    enabled: document.getElementById("enabled").checked,
+  };
+  await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  settingsDirty = false;
+  refresh();
 }
 
 async function addAccount() {
   const cookies = document.getElementById("cookies").value.trim();
   const name = document.getElementById("accName").value.trim();
   if (!cookies) return alert("Paste your cookie JSON first.");
-  const r = await fetch("/api/accounts", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, cookies }),
-  });
+  const r = await fetch("/api/accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, cookies }) });
   const d = await r.json();
   if (!r.ok) return alert(d.error || "Failed to add account.");
   document.getElementById("cookies").value = "";
   document.getElementById("accName").value = "";
-  alert(`Added "${d.name}" (${d.count} cookies).`);
   refresh();
 }
 
-async function verifyAccount(id) {
-  await fetch("/api/accounts/" + id + "/verify", { method: "POST" });
+async function sendNow(id) {
+  if (!confirm("Send the message from this account now?")) return;
+  const r = await fetch("/api/accounts/" + id + "/send-now", { method: "POST" });
+  const d = await r.json();
+  alert(r.ok ? "Sent! Conversation: " + d.convId : "Error: " + d.error);
   refresh();
 }
-
 async function refreshUsage(id) {
-  const r = await fetch("/api/accounts/" + id + "/refresh-usage", { method: "POST" });
-  const d = await r.json();
-  if (r.ok && (!d.usage || !d.usage.resetsAt)) {
-    alert("Couldn't read a reset time yet. It will be captured automatically after the next send.");
-  }
+  const d = await (await fetch("/api/accounts/" + id + "/refresh-usage", { method: "POST" })).json();
+  if (d.ok && (!d.usage || !d.usage.resetsAt))
+    alert("No reset time available yet from usage endpoints. Use Send now to start the cycle and capture it.");
   refresh();
 }
-
-async function refreshAllUsage() {
-  await fetch("/api/refresh-usage", { method: "POST" });
-  refresh();
-}
-
-async function removeAccount(id) {
-  if (!confirm("Remove this account?")) return;
-  await fetch("/api/accounts/" + id, { method: "DELETE" });
-  refresh();
-}
-
-async function schedule() {
-  const dt = document.getElementById("dt").value;
-  const msg = document.getElementById("msg").value;
-  const model = document.getElementById("model").value;
-  if (!dt) return alert("Pick a date & time first.");
-  const r = await fetch("/api/schedule", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ istDateTime: dt, message: msg, model }),
-  });
-  const d = await r.json();
-  if (!r.ok) alert(d.error || "Failed");
-  refresh();
-}
-
-async function triggerNow(id) {
-  const one = typeof id === "string";
-  if (!confirm(one ? "Send a test message from this account now?" : "Send a test message from ALL accounts now?")) return;
-  const r = await fetch("/api/trigger-now", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(one ? { id } : {}),
-  });
-  const d = await r.json();
-  if (!r.ok) alert("Error: " + d.error);
-  else if (one) alert("Sent! Conversation: " + d.convId);
-  else alert(`Done: ${d.sent} sent, ${d.failed} failed.`);
-  refresh();
-}
-
-async function stop() {
-  await fetch("/api/stop", { method: "POST" });
-  refresh();
-}
-
-// Default the datetime input to "now + 5 min" in IST for convenience.
-(function setDefault() {
-  const now = new Date(Date.now() + 5 * 60000);
-  const ist = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-  const pad = n => String(n).padStart(2, "0");
-  document.getElementById("dt").value =
-    `${ist.getFullYear()}-${pad(ist.getMonth()+1)}-${pad(ist.getDate())}T${pad(ist.getHours())}:${pad(ist.getMinutes())}`;
-})();
+async function refreshAllUsage() { await fetch("/api/refresh-usage", { method: "POST" }); refresh(); }
+async function verifyAccount(id) { await fetch("/api/accounts/" + id + "/verify", { method: "POST" }); refresh(); }
+async function removeAccount(id) { if (confirm("Remove this account?")) { await fetch("/api/accounts/" + id, { method: "DELETE" }); refresh(); } }
 
 refresh();
-setInterval(refresh, 1000);
+setInterval(refresh, 2000);
 </script>
 </body>
 </html>
