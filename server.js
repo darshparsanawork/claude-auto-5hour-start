@@ -11,8 +11,13 @@ const COOKIES_PATH = path.join(__dirname, "cookies.json"); // legacy single-acco
 const ACCOUNTS_PATH = path.join(__dirname, "accounts.json");
 const CONFIG_PATH = path.join(__dirname, "config.json");
 
-// 5 hours + 3 minutes, in milliseconds.
+// 5 hours + 3 minutes, in milliseconds (fallback cadence).
 const INTERVAL_MS = (5 * 60 + 3) * 60 * 1000;
+// Fire this long after an account's usage window resets.
+const RESET_DELAY_MS = 5 * 60 * 1000;
+// Model used to send the message. "Sonic" is claude.ai's fast model; this is
+// the API id it maps to. Editable from the UI in case the id changes.
+const DEFAULT_MODEL = "claude-sonnet-4-5";
 
 const BASE = "https://claude.ai";
 const UA =
@@ -26,7 +31,7 @@ function loadConfig() {
   try {
     return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
   } catch {
-    return { nextTriggerAt: null, message: "hi", running: false };
+    return { nextTriggerAt: null, message: "hi", running: false, model: DEFAULT_MODEL };
   }
 }
 
@@ -180,29 +185,73 @@ async function createConversation(cookieHeader, orgId) {
   return data.uuid || convUuid;
 }
 
-async function sendMessage(cookieHeader, orgId, convId, message) {
-  const res = await fetch(
+// Pull usage / reset info out of the rate-limit response headers and SSE body.
+function extractUsage(res, bodyText) {
+  const usage = { resetsAt: null, remaining: null, limit: null };
+  res.headers.forEach((value, key) => {
+    const k = key.toLowerCase();
+    if (!k.includes("ratelimit") && !k.includes("rate-limit")) return;
+    if (k.includes("reset")) {
+      const n = Number(value);
+      if (!Number.isNaN(n)) usage.resetsAt = n < 1e12 ? n * 1000 : n;
+      else if (!Number.isNaN(Date.parse(value))) usage.resetsAt = Date.parse(value);
+    } else if (k.includes("remaining")) {
+      usage.remaining = Number(value);
+    } else if (k.includes("limit")) {
+      usage.limit = Number(value);
+    }
+  });
+  // Fallback: claude.ai also embeds reset info in the stream on limit events.
+  if (!usage.resetsAt && bodyText) {
+    const m = bodyText.match(/"resets?_?at"\s*:\s*"?([\dT:\-.Z+]+)"?/i);
+    if (m) {
+      const n = Number(m[1]);
+      usage.resetsAt = Number.isNaN(n)
+        ? Date.parse(m[1]) || null
+        : n < 1e12 ? n * 1000 : n;
+    }
+  }
+  return usage;
+}
+
+async function sendMessage(cookieHeader, orgId, convId, message, model) {
+  const buildBody = (withModel) =>
+    JSON.stringify({
+      prompt: message,
+      parent_message_uuid: "00000000-0000-4000-8000-000000000000",
+      timezone: "Asia/Kolkata",
+      attachments: [],
+      files: [],
+      sync_sources: [],
+      rendering_mode: "messages",
+      ...(withModel && model ? { model } : {}),
+    });
+
+  let res = await fetch(
     `${BASE}/api/organizations/${orgId}/chat_conversations/${convId}/completion`,
     {
       method: "POST",
       headers: { ...baseHeaders(cookieHeader), Accept: "text/event-stream" },
-      body: JSON.stringify({
-        prompt: message,
-        parent_message_uuid: "00000000-0000-4000-8000-000000000000",
-        timezone: "Asia/Kolkata",
-        attachments: [],
-        files: [],
-        sync_sources: [],
-        rendering_mode: "messages",
-      }),
+      body: buildBody(true),
     }
   );
+  // If the chosen model id is rejected, retry once with the account default.
+  if (!res.ok && model && (res.status === 400 || res.status === 404)) {
+    log(`Model "${model}" rejected (${res.status}); retrying with default model.`);
+    res = await fetch(
+      `${BASE}/api/organizations/${orgId}/chat_conversations/${convId}/completion`,
+      {
+        method: "POST",
+        headers: { ...baseHeaders(cookieHeader), Accept: "text/event-stream" },
+        body: buildBody(false),
+      }
+    );
+  }
+  const body = await res.text();
   if (!res.ok) {
-    const body = await res.text();
     throw new Error(`Send message failed: ${res.status} ${body.slice(0, 200)}`);
   }
-  // Drain the SSE stream so the message is fully registered.
-  await res.text();
+  return extractUsage(res, body);
 }
 
 async function triggerOnce(account) {
@@ -210,8 +259,21 @@ async function triggerOnce(account) {
   if (!header) throw new Error("account has no usable cookies");
   const orgId = await getOrgId(header, orgFromCookie);
   const convId = await createConversation(header, orgId);
-  await sendMessage(header, orgId, convId, config.message || "hi");
-  log(`[${account.name}] Sent message. Conversation: ${BASE}/chat/${convId}`);
+  const usage = await sendMessage(
+    header, orgId, convId, config.message || "hi", config.model || DEFAULT_MODEL
+  );
+  log(`[${account.name}] Sent (model ${config.model || DEFAULT_MODEL}). ${BASE}/chat/${convId}`);
+
+  // Update this account's status with the freshly observed usage, and if the
+  // reset time is known, schedule an auto-fire 5 min after it resets.
+  const prev = accountStatus.get(account.id) || {};
+  const next = { ...prev, active: true, checkedAt: Date.now() };
+  if (usage && usage.resetsAt) {
+    next.usage = usage;
+    next.autoNextAt = usage.resetsAt + RESET_DELAY_MS;
+    log(`[${account.name}] Usage window resets ${new Date(usage.resetsAt).toISOString()}; auto-fire at ${new Date(next.autoNextAt).toISOString()}`);
+  }
+  accountStatus.set(account.id, next);
   return convId;
 }
 
@@ -238,9 +300,13 @@ async function triggerAll() {
 
 // ---------------------------------------------------------------------------
 // Scheduler — checks every 15s whether it's time to fire.
+//   1. Global: the IST start time, then every 5h3m (fallback / kickoff).
+//   2. Per-account: 5 min after each account's detected usage-window reset.
 // ---------------------------------------------------------------------------
 let firing = false;
-async function tick() {
+const firingAccounts = new Set();
+
+async function globalTick() {
   if (!config.running || !config.nextTriggerAt) return;
   if (Date.now() < config.nextTriggerAt) return;
   if (firing) return;
@@ -256,9 +322,34 @@ async function tick() {
     while (next <= Date.now()) next += INTERVAL_MS;
     config.nextTriggerAt = next;
     saveConfig(config);
-    log(`Next trigger scheduled for ${new Date(next).toISOString()}`);
+    log(`Next global trigger scheduled for ${new Date(next).toISOString()}`);
     firing = false;
   }
+}
+
+async function resetTick() {
+  if (!config.running) return;
+  const now = Date.now();
+  for (const account of accounts) {
+    const st = accountStatus.get(account.id);
+    if (!st || !st.autoNextAt) continue;
+    if (now < st.autoNextAt) continue;
+    if (st.firedAutoAt === st.autoNextAt) continue; // already fired this window
+    if (firingAccounts.has(account.id)) continue;
+    firingAccounts.add(account.id);
+    // Mark before firing so we don't double-fire if the send is slow.
+    st.firedAutoAt = st.autoNextAt;
+    accountStatus.set(account.id, st);
+    log(`[${account.name}] Usage reset +5m reached — auto-firing.`);
+    triggerOnce(account)
+      .catch((err) => log(`[${account.name}] auto-fire ERROR: ${err.message}`))
+      .finally(() => firingAccounts.delete(account.id));
+  }
+}
+
+async function tick() {
+  await globalTick();
+  await resetTick();
 }
 setInterval(tick, 15 * 1000);
 
@@ -284,13 +375,17 @@ app.get("/api/status", (req, res) => {
       active: st.active ?? null,
       email: st.email ?? null,
       checkedAt: st.checkedAt ?? null,
+      usage: st.usage ?? null,
+      autoNextAt: st.autoNextAt ?? null,
     };
   });
   res.json({
     running: config.running,
     nextTriggerAt: config.nextTriggerAt,
     message: config.message || "hi",
+    model: config.model || DEFAULT_MODEL,
     intervalMs: INTERVAL_MS,
+    resetDelayMs: RESET_DELAY_MS,
     accounts: accountList,
     serverNow: Date.now(),
     logs,
@@ -299,7 +394,7 @@ app.get("/api/status", (req, res) => {
 
 // Body: { istDateTime: "2026-06-07T15:30" } (interpreted as Asia/Kolkata)
 app.post("/api/schedule", (req, res) => {
-  const { istDateTime, message } = req.body || {};
+  const { istDateTime, message, model } = req.body || {};
   if (!istDateTime) return res.status(400).json({ error: "istDateTime required" });
   // IST is UTC+5:30 (no DST). Append the offset so it parses as IST.
   const ms = Date.parse(`${istDateTime}:00+05:30`);
@@ -307,6 +402,7 @@ app.post("/api/schedule", (req, res) => {
   config.nextTriggerAt = ms;
   config.running = true;
   if (typeof message === "string" && message.trim()) config.message = message.trim();
+  if (typeof model === "string" && model.trim()) config.model = model.trim();
   saveConfig(config);
   log(`Scheduled first trigger for ${new Date(ms).toISOString()} (IST input ${istDateTime})`);
   res.json({ ok: true, nextTriggerAt: ms });

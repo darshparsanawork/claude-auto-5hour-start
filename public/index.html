@@ -29,8 +29,9 @@
     display: flex; align-items: center; justify-content: space-between;
     background: #1c1c1c; border: 1px solid #333; border-radius: 8px; padding: .5rem .7rem;
   }
+  .acct { align-items: flex-start; }
   .acct .meta { font-size: .9rem; }
-  .acct .meta small { color: #888; }
+  .acct .meta small { color: #888; display: block; font-size: .75rem; }
   .acct .acts button { padding: .35rem .6rem; min-width: auto; flex: none; margin-left: .4rem; font-size: .8rem; }
   .empty { color: #777; font-size: .85rem; padding: .3rem 0; }
   .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
@@ -86,6 +87,9 @@
   <label>Message to send</label>
   <input type="text" id="msg" value="hi" />
 
+  <label>Model (Sonic)</label>
+  <input type="text" id="model" value="claude-sonnet-4-5" />
+
   <div class="row">
     <button class="primary" onclick="schedule()">Save &amp; Start</button>
     <button class="ghost" onclick="triggerNow()">Trigger now (test)</button>
@@ -115,11 +119,19 @@ async function refresh() {
             ? '<span class="pill on">ACTIVE</span>'
             : '<span class="pill off">INACTIVE</span>';
         const email = a.email ? escapeHtml(a.email) : (a.active === false ? "session expired?" : "—");
+        let usageLine = "";
+        if (a.usage && a.usage.resetsAt) {
+          const left = (a.usage.remaining != null && a.usage.limit != null)
+            ? `${a.usage.remaining}/${a.usage.limit} left · ` : "";
+          usageLine = `<small>${left}resets ${fmtIST(a.usage.resetsAt)}</small>`;
+          if (a.autoNextAt) usageLine += `<small>auto-fire ${fmtIST(a.autoNextAt)}</small>`;
+        }
         return `
         <div class="acct">
           <div class="meta">
             <div>${escapeHtml(a.name)} ${badge}</div>
             <small>${email} · ${a.cookieCount} cookies</small>
+            ${usageLine}
           </div>
           <div class="acts">
             <button class="ghost" onclick="verifyAccount('${a.id}')">Recheck</button>
@@ -145,8 +157,8 @@ async function refresh() {
     <div>State: <span class="pill ${s.running ? "on" : "off"}">${s.running ? "RUNNING" : "STOPPED"}</span></div>
     <div>Next trigger: <b>${fmtIST(s.nextTriggerAt)}</b></div>
     <div>Countdown: <b>${countdown}</b></div>
-    <div>Interval: every ${Math.round(s.intervalMs/60000)} min (5h 3m)</div>
-    <div>Message: <code>${s.message}</code></div>
+    <div>Interval: every ${Math.round(s.intervalMs/60000)} min (5h 3m) + per-account auto-fire 5m after reset</div>
+    <div>Message: <code>${s.message}</code> · Model: <code>${escapeHtml(s.model || "")}</code></div>
   `;
   document.getElementById("logs").innerHTML = (s.logs || [])
     .map(l => `<div>${new Date(l.time).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"})} — ${l.msg}</div>`)
@@ -188,10 +200,11 @@ async function removeAccount(id) {
 async function schedule() {
   const dt = document.getElementById("dt").value;
   const msg = document.getElementById("msg").value;
+  const model = document.getElementById("model").value;
   if (!dt) return alert("Pick a date & time first.");
   const r = await fetch("/api/schedule", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ istDateTime: dt, message: msg }),
+    body: JSON.stringify({ istDateTime: dt, message: msg, model }),
   });
   const d = await r.json();
   if (!r.ok) alert(d.error || "Failed");

@@ -51,10 +51,24 @@ This is handy for keeping a rolling 5-hour usage window "warm".
 - **Trigger now (test):** fires immediately for **all** accounts.
 - **Stop:** pauses the loop.
 
+- **Model:** the message is sent with the configured model (defaults to
+  claude.ai's fast **Sonic** model, `claude-sonnet-4-5`). Edit the field if your
+  account uses a different model id — if the id is rejected the app retries once
+  with the account default.
+
 Every trigger creates a new conversation and sends the message for **each**
 account. A failure on one account is logged and does not block the others.
 
-After the first fire, the next is auto-scheduled at +5h3m, repeating forever.
+### Scheduling
+
+Two mechanisms run together:
+
+1. **Global:** the IST start time you pick, then every 5h 3m (kickoff /
+   fallback).
+2. **Per-account reset-aware:** each send reads claude.ai's rate-limit reset
+   time from the response, and the app automatically fires that account again
+   **5 minutes after its usage window resets**. The account row shows usage
+   left, the reset time, and the scheduled auto-fire time (all in IST).
 Schedule state persists in `config.json`, so a restart resumes the loop (and
 skips any slots missed while it was down).
 
