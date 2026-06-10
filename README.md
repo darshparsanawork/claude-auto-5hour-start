@@ -68,7 +68,10 @@ Two mechanisms run together:
 2. **Per-account reset-aware:** each send reads claude.ai's rate-limit reset
    time from the response, and the app automatically fires that account again
    **5 minutes after its usage window resets**. The account row shows usage
-   left, the reset time, and the scheduled auto-fire time (all in IST).
+   left, the **next reset time (IST)**, and the scheduled auto-fire time (IST).
+
+Use **Refresh usage** on a row (or **↻ Refresh all usage**) to pull the current
+usage and next reset time on demand, without sending a message.
 Schedule state persists in `config.json`, so a restart resumes the loop (and
 skips any slots missed while it was down).
 

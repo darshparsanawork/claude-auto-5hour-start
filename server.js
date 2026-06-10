@@ -185,7 +185,30 @@ async function createConversation(cookieHeader, orgId) {
   return data.uuid || convUuid;
 }
 
-// Pull usage / reset info out of the rate-limit response headers and SSE body.
+// Deep-walk a parsed JSON body for usage-ish fields (reset/remaining/limit).
+function deepUsage(obj) {
+  const out = { resetsAt: null, remaining: null, limit: null };
+  (function walk(o, d) {
+    if (!o || d > 6 || typeof o !== "object") return;
+    for (const [k, v] of Object.entries(o)) {
+      const lk = k.toLowerCase();
+      if (out.resetsAt == null && lk.includes("reset")) {
+        if (typeof v === "number") out.resetsAt = v < 1e12 ? v * 1000 : v;
+        else if (typeof v === "string") {
+          const n = Number(v);
+          if (!Number.isNaN(n) && v.trim() !== "") out.resetsAt = n < 1e12 ? n * 1000 : n;
+          else if (!Number.isNaN(Date.parse(v))) out.resetsAt = Date.parse(v);
+        }
+      }
+      if (out.remaining == null && lk.includes("remaining") && typeof v === "number") out.remaining = v;
+      if (out.limit == null && lk.includes("limit") && !lk.includes("reset") && typeof v === "number") out.limit = v;
+      walk(v, d + 1);
+    }
+  })(obj, 0);
+  return out;
+}
+
+// Pull usage / reset info out of the rate-limit response headers and body.
 function extractUsage(res, bodyText) {
   const usage = { resetsAt: null, remaining: null, limit: null };
   res.headers.forEach((value, key) => {
@@ -201,14 +224,23 @@ function extractUsage(res, bodyText) {
       usage.limit = Number(value);
     }
   });
-  // Fallback: claude.ai also embeds reset info in the stream on limit events.
-  if (!usage.resetsAt && bodyText) {
-    const m = bodyText.match(/"resets?_?at"\s*:\s*"?([\dT:\-.Z+]+)"?/i);
-    if (m) {
-      const n = Number(m[1]);
-      usage.resetsAt = Number.isNaN(n)
-        ? Date.parse(m[1]) || null
-        : n < 1e12 ? n * 1000 : n;
+  // Fallback: parse the JSON/SSE body for usage fields.
+  if (bodyText && (usage.resetsAt == null || usage.remaining == null)) {
+    try {
+      const json = JSON.parse(bodyText);
+      const fromBody = deepUsage(json);
+      for (const key of ["resetsAt", "remaining", "limit"]) {
+        if (usage[key] == null && fromBody[key] != null) usage[key] = fromBody[key];
+      }
+    } catch {
+      // Not JSON (e.g. SSE) — fall back to a regex for the reset timestamp.
+      const m = bodyText.match(/"resets?_?at"\s*:\s*"?([\dT:\-.Z+]+)"?/i);
+      if (m) {
+        const n = Number(m[1]);
+        usage.resetsAt = Number.isNaN(n)
+          ? Date.parse(m[1]) || null
+          : n < 1e12 ? n * 1000 : n;
+      }
     }
   }
   return usage;
@@ -263,9 +295,12 @@ async function triggerOnce(account) {
     header, orgId, convId, config.message || "hi", config.model || DEFAULT_MODEL
   );
   log(`[${account.name}] Sent (model ${config.model || DEFAULT_MODEL}). ${BASE}/chat/${convId}`);
+  applyUsage(account, usage);
+  return convId;
+}
 
-  // Update this account's status with the freshly observed usage, and if the
-  // reset time is known, schedule an auto-fire 5 min after it resets.
+// Store observed usage on an account and (if reset known) schedule auto-fire.
+function applyUsage(account, usage) {
   const prev = accountStatus.get(account.id) || {};
   const next = { ...prev, active: true, checkedAt: Date.now() };
   if (usage && usage.resetsAt) {
@@ -274,7 +309,37 @@ async function triggerOnce(account) {
     log(`[${account.name}] Usage window resets ${new Date(usage.resetsAt).toISOString()}; auto-fire at ${new Date(next.autoNextAt).toISOString()}`);
   }
   accountStatus.set(account.id, next);
-  return convId;
+  return next;
+}
+
+// Fetch usage / reset time WITHOUT sending a message.
+async function fetchUsage(account) {
+  const { header, orgId: orgFromCookie } = cookieInfo(account.cookies);
+  if (!header) throw new Error("account has no usable cookies");
+  const orgId = await getOrgId(header, orgFromCookie);
+  const endpoints = [
+    `/api/organizations/${orgId}/usage`,
+    `/api/organizations/${orgId}/rate_limit`,
+    `/api/organizations/${orgId}`,
+    `/api/account`,
+  ];
+  let usage = null;
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(`${BASE}${ep}`, { headers: baseHeaders(header) });
+      if (!res.ok) continue;
+      const body = await res.text();
+      const u = extractUsage(res, body);
+      if (u.resetsAt || u.remaining != null) {
+        usage = u;
+        break;
+      }
+    } catch {}
+  }
+  if (!usage || !usage.resetsAt) {
+    log(`[${account.name}] Usage refresh: no reset info found via usage endpoints.`);
+  }
+  return applyUsage(account, usage);
 }
 
 // Fire for every configured account; failures in one don't stop the others.
@@ -435,6 +500,24 @@ app.post("/api/accounts/:id/verify", async (req, res) => {
   if (!account) return res.status(404).json({ error: "Not found" });
   const st = await verifyAccount(account);
   res.json({ ok: true, ...st });
+});
+
+// Force-refresh usage / reset time for one account (no message sent).
+app.post("/api/accounts/:id/refresh-usage", async (req, res) => {
+  const account = accounts.find((a) => a.id === req.params.id);
+  if (!account) return res.status(404).json({ error: "Not found" });
+  try {
+    const st = await fetchUsage(account);
+    res.json({ ok: true, usage: st.usage ?? null, autoNextAt: st.autoNextAt ?? null });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Force-refresh usage for all accounts.
+app.post("/api/refresh-usage", async (req, res) => {
+  await Promise.all(accounts.map((a) => fetchUsage(a).catch(() => {})));
+  res.json({ ok: true });
 });
 
 // Remove an account.
