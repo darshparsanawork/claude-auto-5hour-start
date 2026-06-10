@@ -12,9 +12,9 @@ const RESET_DELAY_MS = 5 * 60 * 1000;
 // Re-attempt reading a reset time at most this often per account.
 const BOOTSTRAP_THROTTLE_MS = 5 * 60 * 1000;
 
-// Model used to send the message. "Sonic" is claude.ai's fast model; this is
-// the API id it maps to. Editable from Settings in case the id changes.
-const DEFAULT_MODEL = "claude-sonnet-4-5";
+// Model used to send the message. Leave empty to use the account's own default
+// model (most reliable). Set a specific id from Settings only if you know it.
+const DEFAULT_MODEL = "";
 
 const BASE = "https://claude.ai";
 const UA =
@@ -62,6 +62,12 @@ function save(name, data) {
 // State
 // ---------------------------------------------------------------------------
 let config = load("config", { message: "hi", model: DEFAULT_MODEL, enabled: true });
+// Older builds defaulted to an id claude.ai rejects ("Unsupported model").
+// Reset it so sends use the account's default model instead.
+if (config.model === "claude-sonnet-4-5") {
+  config.model = "";
+  save("config", config);
+}
 let accounts = load("accounts", []); // [{ id, name, cookies: [...] }]
 const accountStatus = new Map(); // id -> runtime status (not persisted)
 
@@ -219,8 +225,10 @@ async function getOrgId(cookieHeader, fallback) {
   return orgs[0].uuid;
 }
 
-async function createConversation(cookieHeader, orgId, model) {
+async function createConversation(cookieHeader, orgId) {
   const convUuid = crypto.randomUUID();
+  // Note: do NOT send a model here — claude.ai rejects it on conversation
+  // creation ("Unsupported model"). The model (if any) goes on the completion.
   const res = await fetch(`${BASE}/api/organizations/${orgId}/chat_conversations`, {
     method: "POST",
     headers: baseHeaders(cookieHeader),
@@ -228,7 +236,6 @@ async function createConversation(cookieHeader, orgId, model) {
       uuid: convUuid,
       name: "",
       include_conversation_preferences: true,
-      ...(model ? { model } : {}),
     }),
   });
   if (!res.ok) {
@@ -261,7 +268,7 @@ async function sendMessage(cookieHeader, orgId, convId, message, model) {
     body: buildBody(true),
   });
   // If the chosen model id is rejected, retry once with the account default.
-  if (!res.ok && model && (res.status === 400 || res.status === 404)) {
+  if (!res.ok && model && (res.status === 400 || res.status === 404 || res.status === 422)) {
     log(`Model "${model}" rejected (${res.status}); retrying with account default.`);
     res = await fetch(url, {
       method: "POST",
@@ -294,9 +301,9 @@ async function triggerOnce(account) {
   if (!header) throw new Error("account has no usable cookies");
   const model = config.model || DEFAULT_MODEL;
   const orgId = await getOrgId(header, orgFromCookie);
-  const convId = await createConversation(header, orgId, model);
+  const convId = await createConversation(header, orgId);
   const usage = await sendMessage(header, orgId, convId, config.message || "hi", model);
-  log(`[${account.name}] Sent "${config.message || "hi"}" (model ${model}). ${BASE}/chat/${convId}`);
+  log(`[${account.name}] Sent "${config.message || "hi"}"${model ? ` (model ${model})` : " (account default model)"}. ${BASE}/chat/${convId}`);
   applyUsage(account, usage);
   return convId;
 }
